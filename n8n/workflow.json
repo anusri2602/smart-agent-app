@@ -1,0 +1,238 @@
+{
+  "name": "Hasura Action: sendMessage \u2192 OpenRouter",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "sendMessage",
+        "methods": [
+          "POST"
+        ],
+        "responseMode": "lastNode"
+      },
+      "id": "Webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const body = $json;\nconst input = body.input || {};\nconst sessionVars = body.session_variables || {};\nconst userId = sessionVars['x-hasura-user-id'];\n\nif (!userId) throw new Error('Missing x-hasura-user-id');\nif (!input.chat_id || !input.content) throw new Error('Missing chat_id or content');\n\nreturn [{\n  json: {\n    chat_id: input.chat_id,\n    content: input.content,\n    user_id: userId\n  }\n}];\n"
+      },
+      "id": "Prepare",
+      "name": "Prepare",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        420,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.HASURA_GRAPHQL_ENDPOINT}}",
+        "options": {},
+        "jsonParameters": true,
+        "sendBody": true,
+        "authentication": "headerAuth",
+        "headerParametersJson": "={\"x-hasura-admin-secret\": $env.HASURA_ADMIN_SECRET}",
+        "bodyParametersJson": "={\"query\": \"query CheckChat($id: uuid!, $user_id: uuid!) { chats(where: {id: {_eq: $id}, user_id: {_eq: $user_id}}) { id } }\", \"variables\": {\"id\": $json.chat_id, \"user_id\": $json.user_id}}"
+      },
+      "id": "CheckChatOwnership",
+      "name": "CheckChatOwnership",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        650,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const data = items[0].json.data;\nif (!data || !data.chats || data.chats.length === 0) {\n  throw new Error('Forbidden: Chat not found or not owned by user.');\n}\nreturn items;\n"
+      },
+      "id": "AssertOwnership",
+      "name": "AssertOwnership",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        880,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.HASURA_GRAPHQL_ENDPOINT}}",
+        "jsonParameters": true,
+        "sendBody": true,
+        "authentication": "headerAuth",
+        "headerParametersJson": "={\"x-hasura-admin-secret\": $env.HASURA_ADMIN_SECRET}",
+        "bodyParametersJson": "={\"query\": \"query Context($chat_id: uuid!) { messages(where: {chat_id: {_eq: $chat_id}}, order_by: {created_at: asc}, limit: 20) { sender content } }\", \"variables\": {\"chat_id\": $json.chat_id}}"
+      },
+      "id": "FetchContext",
+      "name": "FetchContext",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1110,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "jsonParameters": true,
+        "sendBody": true,
+        "authentication": "headerAuth",
+        "headerParametersJson": "={\"Authorization\": \"Bearer \" + $env.OPENROUTER_API_KEY}",
+        "bodyParametersJson": "={\"model\": \"openrouter/auto\", \"messages\": (($json.data && $json.data.messages) ? $json.data.messages.map(m => ({ role: m.sender === 'user' ? 'user' : 'assistant', content: m.content })) : []).concat([{ role: 'user', content: $prevNode[\\\"Prepare\\\"].json.content }]), \"temperature\": 0.7}"
+      },
+      "id": "OpenRouter",
+      "name": "OpenRouter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "const or = items[0].json;\nconst reply = or.choices?.[0]?.message?.content || '...';\nreturn [{ json: { reply } }];\n"
+      },
+      "id": "ExtractReply",
+      "name": "ExtractReply",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1570,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.HASURA_GRAPHQL_ENDPOINT}}",
+        "jsonParameters": true,
+        "sendBody": true,
+        "authentication": "headerAuth",
+        "headerParametersJson": "={\"x-hasura-admin-secret\": $env.HASURA_ADMIN_SECRET}",
+        "bodyParametersJson": "={\"query\": \"mutation InsertBotMessage($chat_id: uuid!, $content: String!) { insert_messages_one(object: {chat_id: $chat_id, sender: \\\\\\\"bot\\\\\\\", content: $content}) { id } }\", \"variables\": {\"chat_id\": $prevNode.Prepare.json.chat_id, \"content\": $json.reply}}"
+      },
+      "id": "InsertBotMessage",
+      "name": "InsertBotMessage",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "responseBody": "={\"reply\": $prevNode[\"ExtractReply\"].json.reply}",
+        "responseCode": 200
+      },
+      "id": "Respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2030,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare": {
+      "main": [
+        [
+          {
+            "node": "CheckChatOwnership",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CheckChatOwnership": {
+      "main": [
+        [
+          {
+            "node": "AssertOwnership",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AssertOwnership": {
+      "main": [
+        [
+          {
+            "node": "FetchContext",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FetchContext": {
+      "main": [
+        [
+          {
+            "node": "OpenRouter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter": {
+      "main": [
+        [
+          {
+            "node": "ExtractReply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractReply": {
+      "main": [
+        [
+          {
+            "node": "InsertBotMessage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "InsertBotMessage": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "nhost-hasura-n8n-chatbot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@apollo/client": "^3.11.0",
+    "@nhost/nhost-js": "^2.3.0",
+    "@nhost/react": "^2.4.2",
+    "@nhost/react-apollo": "^6.2.0",
+    "graphql": "^16.9.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.26.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.2"
+  }
+}
